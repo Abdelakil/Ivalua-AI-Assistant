@@ -1,0 +1,10 @@
+{
+  "tip_id": "TIP_YOUR_TOPIC_NAME",
+  "topic": "Short topic title",
+  "summary": "One-sentence summary",
+  "detail": "Detailed explanation...",
+  "tags": ["tag1", "tag2"],
+  "related_schema_tables": [],
+  "related_doc_keys": [],
+  "source": "documentation"
+}

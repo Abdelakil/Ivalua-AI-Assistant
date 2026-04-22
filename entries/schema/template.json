@@ -1,0 +1,21 @@
+{
+  "module": "bas",
+  "table_technical_name": "t_bas_example_table",
+  "table_display_name": "Example Table",
+  "columns": [
+    {
+      "column_name": "example_id",
+      "display_name": "Example ID",
+      "data_type": "int",
+      "max_length": "",
+      "allow_null": false,
+      "is_primary_key": true,
+      "foreign_key": null,
+      "domain": "udt_id"
+    }
+  ],
+  "relationships": {
+    "foreign_keys_out": [],
+    "foreign_keys_in": []
+  }
+}

@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# -----------------------------------------------------------------------------
+# pre-commit hook: validate any staged entries/**/*.json before allowing commit.
+# Works on Windows (git bash / MINGW), macOS, and Linux. No admin rights needed.
+#
+# Install once:    python scripts/install_hooks.py
+# Bypass (rarely): git commit --no-verify
+# -----------------------------------------------------------------------------
+set -euo pipefail
+
+# Repo root = parent of .githooks/
+ROOT="$(git rev-parse --show-toplevel)"
+
+# Pick a Python that actually exists on this machine.
+PY=""
+for candidate in python python3 py; do
+  if command -v "$candidate" >/dev/null 2>&1; then
+    PY="$candidate"
+    break
+  fi
+done
+
+if [ -z "$PY" ]; then
+  echo '[pre-commit] WARNING: no Python on PATH, skipping validation.' >&2
+  exit 0
+fi
+
+# Collect staged JSON files under entries/. If none, nothing to check.
+mapfile -t STAGED < <(git diff --cached --name-only --diff-filter=ACM \
+  | grep -E '^entries/(schema|docs|tips)/.*\.json$' || true)
+
+if [ ${#STAGED[@]} -eq 0 ]; then
+  exit 0
+fi
+
+echo "[pre-commit] Validating ${#STAGED[@]} staged entry file(s)..."
+
+FAILED=0
+for f in "${STAGED[@]}"; do
+  if ! "$PY" "$ROOT/scripts/validate_entries.py" "$ROOT/$f"; then
+    FAILED=1
+  fi
+done
+
+if [ "$FAILED" -ne 0 ]; then
+  echo '[pre-commit] Validation failed. Fix the above errors or run with --no-verify to bypass.' >&2
+  exit 1
+fi
+
+echo '[pre-commit] All staged entries valid.'

@@ -1,0 +1,40 @@
+{
+  "module": "bas",
+  "table_technical_name": "t_bas_legal_company",
+  "table_display_name": "Legal Company",
+  "columns": [
+    {
+      "column_name": "lcomp_id",
+      "display_name": "Legal Company ID",
+      "data_type": "int",
+      "max_length": "",
+      "allow_null": false,
+      "is_primary_key": true,
+      "foreign_key": null,
+      "domain": "udt_id"
+    },
+    {
+      "column_name": "lcomp_ape",
+      "display_name": "APE code",
+      "data_type": "nvarchar",
+      "max_length": "64",
+      "allow_null": true,
+      "is_primary_key": false,
+      "foreign_key": {
+        "table": "t_sup_naf",
+        "column": "naf_code"
+      },
+      "domain": "udt_short_label"
+    }
+  ],
+  "relationships": {
+    "foreign_keys_out": [
+      {
+        "from_column": "lcomp_ape",
+        "to_table": "t_sup_naf",
+        "to_column": "naf_code"
+      }
+    ],
+    "foreign_keys_in": []
+  }
+}

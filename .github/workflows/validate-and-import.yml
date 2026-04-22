@@ -1,0 +1,97 @@
+# -----------------------------------------------------------------------------
+# Ivalua ConPort — validate + import pipeline
+#
+# On PRs    : validate entries (fails fast on invalid JSON). No db changes.
+# On push   : validate, import into context.db, commit the updated db back
+#   to main    to the main branch with `[skip ci]` so we don't loop.
+# Manual    : `workflow_dispatch` button for ad-hoc rebuilds.
+# -----------------------------------------------------------------------------
+name: Validate & Import Entries
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'entries/**'
+      - 'scripts/validate_entries.py'
+      - 'context_portal/scripts/import_**.py'
+      - '.github/workflows/**'
+  push:
+    branches: [main]
+    paths:
+      - 'entries/**'
+      - 'scripts/validate_entries.py'
+      - 'context_portal/scripts/import_**.py'
+  workflow_dispatch:
+
+# Don't pile up redundant runs on rapid pushes.
+concurrency:
+  group: conport-import-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write   # needed so `push` jobs can commit context.db back
+
+jobs:
+  validate:
+    name: Validate entries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Validate all entries
+        run: python scripts/validate_entries.py
+
+  import:
+    name: Import to ConPort DB
+    needs: validate
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so `git push` has something to fast-forward from.
+          fetch-depth: 0
+          # Use the built-in GITHUB_TOKEN to push back.
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Build import chunks
+        run: python context_portal/scripts/import_all_entries.py
+
+      - name: Load chunks into context.db
+        run: |
+          python context_portal/scripts/import_to_conport.py 'schema_chunk_*.json'
+          python context_portal/scripts/import_to_conport.py 'doc_chunk_*.json'
+          python context_portal/scripts/import_to_conport.py 'tips_chunk_*.json'
+
+      - name: Commit updated database
+        run: |
+          set -euo pipefail
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+
+          # Stage only the db. Everything else (chunks, caches) stays ignored.
+          git add -f context_portal/context.db
+
+          if git diff --cached --quiet; then
+            echo 'No database changes — nothing to commit.'
+            exit 0
+          fi
+
+          git commit -m 'chore(db): rebuild context.db from entries [skip ci]'
+          git push origin HEAD:${{ github.ref_name }}
+
+      - name: Upload database artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: context-db
+          path: context_portal/context.db
+          retention-days: 14

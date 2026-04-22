@@ -1,0 +1,17 @@
+[project]
+name = "ivalua-conport"
+version = "1.0.0"
+description = "Ivalua knowledge base on ConPort with crash-prevention proxy"
+requires-python = ">=3.11"
+dependencies = [
+    "context-portal-mcp>=0.3.0",
+]
+
+[tool.uv]
+# Pin a recent stable Python so uv auto-downloads the same version on every machine
+# (portable Python, installed into the user cache, no admin rights needed).
+required-version = ">=0.5.0"
+
+[tool.uv.pip]
+# Everything stays inside the project-local .venv created by `uv sync`
+system = false

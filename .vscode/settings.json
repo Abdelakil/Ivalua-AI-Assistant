@@ -1,0 +1,13 @@
+{
+  "//": "Point the Python extension at the project-local .venv created by uv.",
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe",
+  "python.terminal.activateEnvironment": true,
+  "files.eol": "\n",
+  "files.associations": {
+    "*.cmd": "bat"
+  },
+  "[json]": {
+    "editor.formatOnSave": true,
+    "editor.tabSize": 2
+  }
+}

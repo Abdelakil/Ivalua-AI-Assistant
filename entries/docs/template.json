@@ -1,0 +1,15 @@
+{
+  "module": "Module Name",
+  "topic": "Topic Name",
+  "file_path": "Documentation/path/to/file.pdf",
+  "content_type": "pdf",
+  "summary": "Brief 2-3 sentence summary",
+  "key_concepts": ["concept1", "concept2"],
+  "content": "Full documentation text...",
+  "sections": [
+    {
+      "title": "Section Title",
+      "content": "Section content"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "//": "VS Code MCP config. Uses a workspace-relative command so the repo stays fully portable.",
+  "//2": "Requires VS Code >= 1.95 or the official MCP extension.",
+  "servers": {
+    "conport": {
+      "type": "stdio",
+      "command": "${workspaceFolder}/conport_launcher.cmd",
+      "args": [],
+      "windows": {
+        "command": "${workspaceFolder}/conport_launcher.cmd"
+      },
+      "osx": {
+        "command": "${workspaceFolder}/conport_launcher.sh"
+      },
+      "linux": {
+        "command": "${workspaceFolder}/conport_launcher.sh"
+      }
+    }
+  }
+}

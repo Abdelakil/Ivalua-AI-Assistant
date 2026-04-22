@@ -1,0 +1,12 @@
+{
+  "tip_id": "TIP_ETL_CURRENCY_CONVERSION",
+  "topic": "Currency conversion maintenance",
+  "summary": "Use ETL std_currency_conv to update conversion rates, never manual edits",
+  "detail": "Currency conversion rates should be imported automatically via the standard ETL 'STD - Currencies Conversion' (std_currency_conv). Manual editing is labor-intensive and not recommended. The reference currency (usually EUR) acts as the pivot for all conversions.",
+  "tags": ["etl", "currency", "conversion", "admin"],
+  "related_schema_tables": ["t_bas_unit_conversion", "t_bas_unit"],
+  "related_doc_keys": [
+    "DOC_PLATFORM_ADMIN_AND_CONFIG_MASTER_DATA_ADMINISTRATION_V178_5_EDIT_CONVERSION_RATES_FOR_UNITS_AND_CURRENCIES_B1_FOUNDATIONS_OF_CURRENCY_CONVERSIONS"
+  ],
+  "source": "documentation"
+}

@@ -1,0 +1,19 @@
+{
+  "module": "Supplier Management",
+  "topic": "Supplier Onboarding Workflow",
+  "file_path": "Documentation/01 - Supplier Management (v176-v178)/onboarding.pdf",
+  "content_type": "pdf",
+  "summary": "Describes the step-by-step process for onboarding new suppliers into the Ivalua platform.",
+  "key_concepts": ["supplier onboarding", "approval workflow", "data validation"],
+  "content": "Supplier onboarding involves multiple steps:\n\n1. Initial Registration\n- Enter supplier basic information\n- Validate company details\n- Check for duplicates\n\n2. Data Validation\n- Verify tax IDs and legal information\n- Validate contact details\n- Check banking information\n\n3. Approval Workflow\n- Submit for manager approval\n- Risk assessment\n- Compliance checks\n\n4. Activation\n- Final approval\n- System activation\n- Notification to supplier",
+  "sections": [
+    {
+      "title": "Initial Registration",
+      "content": "Enter supplier basic information, validate company details, check for duplicates."
+    },
+    {
+      "title": "Data Validation",
+      "content": "Verify tax IDs and legal information, validate contact details, check banking information."
+    }
+  ]
+}
