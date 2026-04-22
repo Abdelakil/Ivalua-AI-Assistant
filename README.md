@@ -165,11 +165,68 @@ Delete the repo folder and nothing is left on your system.
 > just retry the same question — the bootstrap continues in the
 > background and the next call will succeed instantly.
 
-### 1e. Verify it works
+### 1e. Install the ConPort custom instructions (**required**)
 
-Ask your AI:
+Running the MCP server is only half the setup. The LLM itself also
+needs to know **when** and **how** to call ConPort tools — otherwise
+it'll just ignore them. Upstream ConPort
+([GreatScottyMac/context-portal](https://github.com/GreatScottyMac/context-portal))
+ships a set of strategy files for this, and this repo bundles copies
+in `conport-custom-instructions/`:
 
-> "Using the conport MCP server, what are the tables in the supplier module?"
+| File                                   | Use with                         |
+|----------------------------------------|----------------------------------|
+| `cascade_conport_strategy.md`          | **Windsurf Cascade**             |
+| `generic_conport_strategy.md`          | Any MCP-capable LLM (fallback)   |
+| `cline_conport_strategy.md`            | Cline (VS Code extension)        |
+| `roo_code_conport_strategy.md`         | Roo Code (VS Code extension)     |
+
+Install the one that matches your editor:
+
+#### Windsurf (Cascade)
+
+1. Windsurf menu → **Settings** → **Customizations** → **Global Rules**
+   (or **Workspace Rules** for this repo only).
+2. Paste the **full contents** of
+   `conport-custom-instructions/cascade_conport_strategy.md`.
+3. Save.
+4. **At the start of every new Cascade session**, send the magic phrase:
+
+   > **Initialize according to custom instructions**
+
+   This triggers the initialization sequence defined in the strategy
+   (probes `context_portal/context.db`, loads product/active context,
+   recent decisions, etc.). **Without this phrase Cascade will not
+   auto-load ConPort memory.**
+
+#### VS Code (Cline / Roo Code / Copilot Chat)
+
+- **Cline:** Settings → **Custom Instructions** → paste contents of
+  `cline_conport_strategy.md`.
+- **Roo Code:** Settings → **Custom Instructions** → paste contents of
+  `roo_code_conport_strategy.md`.
+- **Copilot Chat / other:** create `.github/copilot-instructions.md`
+  (or the extension's equivalent) and paste contents of
+  `generic_conport_strategy.md`.
+
+#### Cursor / Claude Desktop / other
+
+Paste `generic_conport_strategy.md` into the product's
+system-prompt / custom-instructions field. The generic strategy
+uses `get_conport_schema` to discover tool names at runtime, so it
+works on any MCP-capable LLM.
+
+> **Keeping strategies up to date.** The bundled files are verbatim
+> copies from the upstream repo. To refresh them, re-download from
+> [context-portal/conport-custom-instructions](https://github.com/GreatScottyMac/context-portal/tree/main/conport-custom-instructions).
+
+### 1f. Verify it works
+
+1. Start a **new session** with your AI.
+2. Send: **"Initialize according to custom instructions"** (Windsurf)
+   — other editors auto-apply their custom instructions.
+3. Ask:
+   > "Using the conport MCP server, what are the tables in the supplier module?"
 
 If the answer contains real table names like `t_sup_supplier`,
 `t_sup_internal_team`, `t_sup_naf` (rather than plausibly-guessed
@@ -196,8 +253,12 @@ Ivalua-AI-Assistant/
 ├── scripts/
 │   ├── validate_entries.py                ← JSON validator (stdlib only)
 │   └── install_hooks.py                   ← one-shot hook installer
+├── conport-custom-instructions/           ← paste these into your editor's rules
+│   ├── cascade_conport_strategy.md        ← Windsurf Cascade
+│   ├── generic_conport_strategy.md        ← any MCP-capable LLM
+│   ├── cline_conport_strategy.md          ← Cline (VS Code)
+│   └── roo_code_conport_strategy.md       ← Roo Code (VS Code)
 ├── entries/                               ← ← ← USER CONTRIBUTIONS GO HERE
-│   ├── README.md
 │   ├── schema/  {template,example}.json
 │   ├── docs/    {template,example}.json
 │   └── tips/    {template,example}.json
