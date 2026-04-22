@@ -216,9 +216,19 @@ system-prompt / custom-instructions field. The generic strategy
 uses `get_conport_schema` to discover tool names at runtime, so it
 works on any MCP-capable LLM.
 
-> **Keeping strategies up to date.** The bundled files are verbatim
-> copies from the upstream repo. To refresh them, re-download from
-> [context-portal/conport-custom-instructions](https://github.com/GreatScottyMac/context-portal/tree/main/conport-custom-instructions).
+> **Keeping strategies up to date** — this is automated:
+>
+> - **Weekly** a scheduled GitHub Action
+>   (`.github/workflows/sync-custom-instructions.yml`) fetches the
+>   latest strategy files from upstream and, if anything changed,
+>   opens a pull request for review.
+> - **On demand** — go to GitHub → Actions →
+>   **Sync upstream custom instructions** → *Run workflow*.
+> - **Locally** — `python scripts/sync_custom_instructions.py`
+>   (use `--check` for a dry run, or `--ref v1.2.3` to pin).
+>
+> A PR is opened rather than a direct push so a human can review
+> the diff — upstream strategy changes affect how the LLM behaves.
 
 ### 1f. Verify it works
 
@@ -247,12 +257,14 @@ Ivalua-AI-Assistant/
 │   ├── settings.json                      ← Python interpreter + formatting
 │   └── extensions.json                    ← recommended extensions
 ├── .github/workflows/
-│   └── validate-and-import.yml            ← CI: validate → import → commit db
+│   ├── validate-and-import.yml            ← CI: validate → import → commit db
+│   └── sync-custom-instructions.yml       ← weekly upstream strategy sync (PR)
 ├── .githooks/
 │   └── pre-commit                         ← local validation before commit
 ├── scripts/
 │   ├── validate_entries.py                ← JSON validator (stdlib only)
-│   └── install_hooks.py                   ← one-shot hook installer
+│   ├── install_hooks.py                   ← one-shot hook installer
+│   └── sync_custom_instructions.py        ← pull upstream strategies
 ├── conport-custom-instructions/           ← paste these into your editor's rules
 │   ├── cascade_conport_strategy.md        ← Windsurf Cascade
 │   ├── generic_conport_strategy.md        ← any MCP-capable LLM

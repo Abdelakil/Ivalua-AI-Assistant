@@ -1,0 +1,65 @@
+# -----------------------------------------------------------------------------
+# Keep conport-custom-instructions/ in sync with the upstream repo
+#   https://github.com/GreatScottyMac/context-portal
+#
+# Weekly cron + manual trigger. If upstream files differ, this workflow opens
+# a pull request (not a direct push) so a human reviews the diff before it
+# lands on main — upstream strategies can change behaviour significantly.
+# -----------------------------------------------------------------------------
+name: Sync upstream custom instructions
+
+on:
+  schedule:
+    - cron: '17 6 * * 1'      # Every Monday 06:17 UTC
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Upstream git ref (branch/tag/commit)'
+        required: false
+        default: 'main'
+
+permissions:
+  contents: write         # needed to create the branch
+  pull-requests: write    # needed to open the PR
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Fetch upstream strategies
+        id: sync
+        run: |
+          set +e
+          python scripts/sync_custom_instructions.py --ref "${{ github.event.inputs.ref || 'main' }}"
+          RC=$?
+          echo "exitcode=$RC" >> "$GITHUB_OUTPUT"
+          # 0 = no changes, 1 = updated, 2 = failure
+          if [ "$RC" -eq 2 ]; then exit 1; fi
+          exit 0
+
+      - name: Open PR if strategies changed
+        if: steps.sync.outputs.exitcode == '1'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: chore/sync-custom-instructions
+          base: main
+          title: 'chore: sync ConPort custom instructions from upstream'
+          commit-message: 'chore: sync conport-custom-instructions/ from upstream'
+          body: |
+            Automated sync from
+            [GreatScottyMac/context-portal](https://github.com/GreatScottyMac/context-portal/tree/main/conport-custom-instructions).
+
+            Review the diff — upstream strategy changes can alter how the LLM
+            initializes memory and decides when to call ConPort tools.
+
+            Triggered by `.github/workflows/sync-custom-instructions.yml`.
+          labels: dependencies, documentation
+          delete-branch: true
+          add-paths: |
+            conport-custom-instructions/**
