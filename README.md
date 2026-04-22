@@ -31,8 +31,21 @@ separate download step.
 
 ### 1b. Make the launcher executable (macOS / Linux only)
 
+If you used `git clone` (step 1a), the executable bit is preserved
+in the git index — you can skip to 1c.
+
+If you instead **downloaded the ZIP** from the GitHub "Code → Download
+ZIP" button, GitHub strips all Unix file modes. You **must** run:
+
 ```bash
 chmod +x conport_launcher.sh
+chmod +x .githooks/pre-commit     # only if you plan to use the pre-commit hook
+```
+
+Skipping this causes the exact error Windsurf reports as:
+
+```
+failed to start command: fork/exec .../conport_launcher.sh: permission denied
 ```
 
 On Windows the `.cmd` file doesn't need this.
