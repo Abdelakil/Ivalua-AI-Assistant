@@ -50,7 +50,42 @@ failed to start command: fork/exec .../conport_launcher.sh: permission denied
 
 On Windows the `.cmd` file doesn't need this.
 
-### 1c. Run the tool — pick **one** of the following
+### 1c. Pre-warm the toolchain (**strongly recommended on first install**)
+
+The very first launch downloads `uv` (~20 MB), a portable Python
+(~30 MB), and installs ~130 packages (`context-portal-mcp`, its
+deps, etc.). On a fresh machine this takes **2–5 minutes** — longer
+than the **60-second MCP timeout** that Windsurf/VS Code/Cursor
+enforce, which will surface as:
+
+```
+MCP Server Error: MCP server timed out after 60 seconds.
+```
+
+To avoid this, run the bootstrap **once** from a terminal before
+hooking up your editor:
+
+```bash
+# macOS / Linux
+./scripts/bootstrap.sh
+```
+
+```powershell
+# Windows
+scripts\bootstrap.cmd
+```
+
+The script downloads everything, builds the local `.venv`, and
+smoke-tests the ConPort server — then exits. Your editor's
+subsequent MCP connection will start in **< 3 seconds**, well
+under any client timeout.
+
+> Already hit the timeout? You have two options: (a) run the
+> bootstrap above and restart your editor, or (b) keep clicking
+> "Retry" in the editor — the download continues in the background
+> and eventually succeeds.
+
+### 1d. Run the tool — pick **one** of the following
 
 You almost never run the launcher by hand. Instead, point your AI
 editor at it and the editor runs it for you as an MCP server.
@@ -157,27 +192,6 @@ Press `Ctrl+C` to stop. To quit cleanly from the JSON-RPC side, send
 `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}` followed
 by EOF.
 
-### 1d. First-run bootstrap (~50 s, one time only)
-
-The **very first** time the launcher runs (via your editor or
-manually), it will:
-
-1. Download a standalone `uv` binary (~20 MB) into `.tools/`.
-2. `uv` downloads a portable CPython interpreter (~30 MB) into the
-   same folder.
-3. `uv sync` builds a project-local `.venv` from `pyproject.toml`
-   and installs `context-portal-mcp` + its dependencies.
-4. Launches the safety proxy, which spawns the real ConPort server.
-
-Every subsequent launch is **< 3 seconds**.
-
-Everything lives **inside the repo folder** (`.tools/`, `.venv/`).
-Delete the repo folder and nothing is left on your system.
-
-> If your editor's MCP client times out during the 50 s bootstrap,
-> just retry the same question — the bootstrap continues in the
-> background and the next call will succeed instantly.
-
 ### 1e. Install the ConPort custom instructions (**required**)
 
 Running the MCP server is only half the setup. The LLM itself also
@@ -275,6 +289,7 @@ Ivalua-AI-Assistant/
 ├── .githooks/
 │   └── pre-commit                         ← local validation before commit
 ├── scripts/
+│   ├── bootstrap.sh / .cmd                ← pre-warm toolchain (run once)
 │   ├── validate_entries.py                ← JSON validator (stdlib only)
 │   ├── install_hooks.py                   ← one-shot hook installer
 │   └── sync_custom_instructions.py        ← pull upstream strategies
