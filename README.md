@@ -39,6 +39,7 @@ ZIP" button, GitHub strips all Unix file modes. You **must** run:
 
 ```bash
 chmod +x conport_launcher.sh
+chmod +x scripts/bootstrap.sh
 chmod +x .githooks/pre-commit     # only if you plan to use the pre-commit hook
 ```
 
@@ -66,7 +67,7 @@ To avoid this, run the bootstrap **once** from a terminal before
 hooking up your editor:
 
 ```bash
-# macOS / Linux
+# macOS / Linux  (if you got "Permission denied", run the chmod in 1b first)
 ./scripts/bootstrap.sh
 ```
 
@@ -271,7 +272,69 @@ names), the pipeline is live end-to-end.
 
 ---
 
-## 2. Repository layout
+## 2. Keeping your knowledge base up to date
+
+Whenever a colleague adds an `entries/*.json` file and pushes it to
+`main`, the GitHub Action rebuilds `context_portal/context.db` and
+**commits the updated database back to `main` automatically**. To get
+those updates on your machine:
+
+### 2a. Pull the latest DB
+
+```bash
+cd /path/to/Ivalua-AI-Assistant
+git pull --ff-only
+```
+
+That's it. The next MCP call sees the new content immediately — no
+restart of the editor required (ConPort reads from SQLite on every
+query).
+
+> **If you only use the repo as an AI knowledge base** (no local
+> commits), `git pull --ff-only` always succeeds. If you've made
+> local changes to `context.db` (rare — don't do this), the pull
+> will conflict and you should `git reset --hard origin/main` to
+> discard your local edits and accept the CI-built DB.
+
+### 2b. Automate the pull (optional)
+
+If you want the DB to refresh without thinking about it, add a
+scheduler job:
+
+**Windows (Task Scheduler, every hour)**
+```powershell
+schtasks /Create /SC HOURLY /TN "IvaluaKB-Sync" /TR `
+  "powershell -NoProfile -Command `"cd 'C:\path\to\Ivalua-AI-Assistant'; git pull --ff-only`""
+```
+
+**macOS / Linux (cron, every hour)**
+```bash
+( crontab -l 2>/dev/null; echo "0 * * * * cd ~/Ivalua-AI-Assistant && git pull --ff-only >/dev/null 2>&1" ) | crontab -
+```
+
+### 2c. Force-refresh after a big batch import
+
+If someone just pushed a large update and you want it *now*:
+
+```bash
+git fetch origin
+git reset --hard origin/main
+```
+
+This discards any local changes (including the CI-rebuilt `.venv`
+cache if you've touched it) and snaps you to the exact state on
+GitHub.
+
+### 2d. Want the latest custom-instruction strategies too?
+
+The same `git pull` pulls in any merged PR from the weekly
+`sync-custom-instructions` workflow, so your
+`conport-custom-instructions/*.md` files stay current with upstream.
+No separate action needed.
+
+---
+
+## 3. Repository layout
 
 ```
 Ivalua-AI-Assistant/
@@ -321,12 +384,12 @@ context_portal/conport_vector_data/    context_portal/logs/
 
 ---
 
-## 3. Contributing content (the `entries/` workflow)
+## 4. Contributing content (the `entries/` workflow)
 
 All user contributions live under `entries/` as JSON files. **Do not
 edit `context.db` directly** — CI rebuilds it on every push to `main`.
 
-### 3.1 Pick the right subfolder
+### 4.1 Pick the right subfolder
 
 | Subfolder       | ConPort category        | Use for                                    |
 |-----------------|-------------------------|--------------------------------------------|
@@ -334,7 +397,7 @@ edit `context.db` directly** — CI rebuilds it on every push to `main`.
 | `entries/docs/`   | `IVALUA_Documentation`   | Functional docs, process descriptions       |
 | `entries/tips/`   | `Tips`                   | Gotchas, best practices, verified facts     |
 
-### 3.2 Copy the template, fill it in
+### 4.2 Copy the template, fill it in
 
 ```bash
 cp entries/schema/template.json entries/schema/my_table.json
@@ -370,7 +433,7 @@ cp entries/schema/template.json entries/schema/my_table.json
 | `detail`   | ✅        | Full explanation                                |
 | `tags[]`, `related_schema_tables[]`, `related_doc_keys[]`, `source` | ➖ | optional |
 
-### 3.3 Validate locally (optional but recommended)
+### 4.3 Validate locally (optional but recommended)
 
 ```bash
 python scripts/validate_entries.py               # all files
@@ -380,7 +443,7 @@ python scripts/validate_entries.py entries/tips/my_tip.json
 Exit code is 0 on success, 1 on validation errors, 2 on I/O errors.
 **CI runs the exact same validator.**
 
-### 3.4 Install the pre-commit hook (one-time)
+### 4.4 Install the pre-commit hook (one-time)
 
 Blocks commits that contain invalid JSON:
 
@@ -390,7 +453,7 @@ python scripts/install_hooks.py --uninstall
 git commit --no-verify                    # bypass once
 ```
 
-### 3.5 Commit & push
+### 4.5 Commit & push
 
 ```bash
 git add entries/schema/my_table.json
@@ -409,9 +472,9 @@ CI will:
 
 ---
 
-## 4. ConPort key schemes (memorize these — they are your API)
+## 5. ConPort key schemes (memorize these — they are your API)
 
-### 4.1 Database schema
+### 5.1 Database schema
 
 | Purpose                  | Key pattern                     | Example                         |
 |--------------------------|---------------------------------|---------------------------------|
@@ -422,7 +485,7 @@ CI will:
 FK relationships are **bidirectional**: `foreign_keys_out` +
 `foreign_keys_in` per table — no joins, no extra queries.
 
-### 4.2 Documentation
+### 5.2 Documentation
 
 | Purpose                  | Key pattern                       | Example                        |
 |--------------------------|-----------------------------------|--------------------------------|
@@ -430,7 +493,7 @@ FK relationships are **bidirectional**: `foreign_keys_out` +
 | Module → list of docs    | `DOC_INDEX_{MODULE_SLUG}`         | `DOC_INDEX_SUPPLIER_MANAGEMENT` |
 | All-docs overview        | `DOC_INDEX_ALL`                   | —                              |
 
-### 4.3 Tips
+### 5.3 Tips
 
 | Purpose | Key pattern         | Example            |
 |---------|---------------------|--------------------|
@@ -438,7 +501,7 @@ FK relationships are **bidirectional**: `foreign_keys_out` +
 
 ---
 
-## 5. The safety proxy
+## 6. The safety proxy
 
 `context_portal/scripts/conport_safe_proxy.py` is an MCP stdio proxy
 that sits between your editor and the real ConPort server. It:
@@ -451,7 +514,7 @@ It's wired in automatically by the launcher. Nothing to configure.
 
 ---
 
-## 6. Architecture
+## 7. Architecture
 
 ```
  Your editor (VS Code / Windsurf / Cursor / Claude Desktop)
@@ -471,7 +534,7 @@ It's wired in automatically by the launcher. Nothing to configure.
 
 ---
 
-## 7. Local development
+## 8. Local development
 
 ### Rebuild the DB from scratch from entries/
 
@@ -498,21 +561,22 @@ Next launch re-downloads and reinstalls everything.
 
 ---
 
-## 8. Troubleshooting
+## 9. Troubleshooting
 
 | Symptom                                                 | Fix                                                           |
 |---------------------------------------------------------|---------------------------------------------------------------|
-| MCP server fails to start on first launch               | Retry. Bootstrap (~50 s) may outlast the editor's MCP timeout. Second try always works. |
+| `MCP server timed out after 60 seconds.`                | Run `./scripts/bootstrap.sh` (Linux/macOS) or `scripts\bootstrap.cmd` (Windows) once from a terminal, then restart the editor. See §1c. |
+| `permission denied … conport_launcher.sh`               | You downloaded the ZIP. Run `chmod +x conport_launcher.sh scripts/bootstrap.sh`. See §1b. |
 | "File not found" on the launcher path                   | VS Code: path in `.vscode/mcp.json` is workspace-relative, ensure you opened the repo root. Windsurf: must be absolute. |
 | macOS: "uv can't be opened, developer unverified"       | `xattr -d com.apple.quarantine .tools/uv`                      |
-| Linux: permission denied on launcher                    | `chmod +x conport_launcher.sh .tools/uv`                       |
+| `git pull` refuses with conflict on `context.db`        | `git reset --hard origin/main` — you accidentally modified the DB locally. See §2a. |
 | CI fails on validation                                  | Run `python scripts/validate_entries.py` locally — same errors. |
 | Hook not running                                        | Run `python scripts/install_hooks.py` (once per clone).        |
 | Want to force a full re-import                          | GitHub → Actions → **Validate & Import Entries** → Run workflow. |
 
 ---
 
-## 9. FAQ
+## 10. FAQ
 
 **Does committing `context.db` (~46 MB) bloat the repo?**
 Each CI run adds one binary diff. For a small team this stays under a
@@ -535,6 +599,6 @@ Append it to `VALID_SCHEMA_MODULES` in
 
 ---
 
-## 10. License
+## 11. License
 
 Internal knowledge base. See repository settings for licensing details.
