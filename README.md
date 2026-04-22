@@ -12,7 +12,11 @@ manager, no hardcoded paths. Clone, configure your editor once, done.
 
 ---
 
-## 1. Quick start
+## 1. Installation
+
+> **Prerequisites:** `git` installed, and an internet connection on the
+> **first** launch only. That's it. No Python, no admin rights, no
+> installers, no PATH edits.
 
 ### 1a. Clone the repo
 
@@ -21,73 +25,155 @@ git clone https://github.com/Abdelakil/Ivalua-AI-Assistant.git
 cd Ivalua-AI-Assistant
 ```
 
-The SQLite knowledge base (`context_portal/context.db`) ships inside
-the repo, so the clone is immediately usable.
+The SQLite knowledge base (`context_portal/context.db`, ~46 MB) is
+committed to the repo, so the clone is immediately usable — no
+separate download step.
 
-### 1b. Configure your editor
+### 1b. Make the launcher executable (macOS / Linux only)
 
-#### VS Code (zero-editing, workspace-relative)
+```bash
+chmod +x conport_launcher.sh
+```
 
-The repo ships `.vscode/mcp.json` — nothing to create. Just:
+On Windows the `.cmd` file doesn't need this.
 
-1. Open the cloned folder in VS Code.
-2. Reload the window (`Ctrl+Shift+P` → **Developer: Reload Window**).
-3. Run **MCP: List Servers** — you should see `conport`.
+### 1c. Run the tool — pick **one** of the following
 
-Requires VS Code ≥ 1.95 (built-in MCP) or the MCP extension.
+You almost never run the launcher by hand. Instead, point your AI
+editor at it and the editor runs it for you as an MCP server.
 
-#### Windsurf / Cursor / Claude Desktop
+---
 
-Add this to your MCP config:
+#### Option 1 — VS Code (easiest, zero editing)
 
-**Windows** — `%USERPROFILE%\.codeium\windsurf\mcp_config.json`
+The repo already ships `.vscode/mcp.json` with a workspace-relative
+path. Nothing to create.
+
+1. Open the cloned folder in VS Code:
+   ```bash
+   code .
+   ```
+2. Reload the window: `Ctrl+Shift+P` → **Developer: Reload Window**.
+3. Open the Command Palette → **MCP: List Servers** → you should see
+   `conport` listed and in state **Running** (or **Starting…** on the
+   first run — see section 1d).
+4. Ask Copilot Chat / any MCP-aware chat panel:
+   > "Using the conport MCP server, list the tables in the supplier module."
+
+Requires **VS Code ≥ 1.95** (built-in MCP) or the **MCP** extension
+for older builds.
+
+---
+
+#### Option 2 — Windsurf
+
+Edit your Windsurf MCP config file:
+
+- **Windows:** `%USERPROFILE%\.codeium\windsurf\mcp_config.json`
+- **macOS / Linux:** `~/.codeium/windsurf/mcp_config.json`
+
+Add the `conport` entry (replace the path with wherever you cloned
+the repo):
+
+**Windows**
 ```json
 {
   "mcpServers": {
     "conport": {
-      "command": "C:\\absolute\\path\\to\\Ivalua-AI-Assistant\\conport_launcher.cmd",
+      "command": "C:\\Users\\YOU\\path\\to\\Ivalua-AI-Assistant\\conport_launcher.cmd",
       "disabled": false
     }
   }
 }
 ```
 
-**macOS / Linux** — `~/.codeium/windsurf/mcp_config.json`
+**macOS / Linux**
 ```json
 {
   "mcpServers": {
     "conport": {
-      "command": "/absolute/path/to/Ivalua-AI-Assistant/conport_launcher.sh",
+      "command": "/Users/you/path/to/Ivalua-AI-Assistant/conport_launcher.sh",
       "disabled": false
     }
   }
 }
 ```
 
-Restart the editor.
+Save, **fully restart Windsurf**, then open the MCP panel to confirm
+`conport` is running.
 
-### 1c. First-run bootstrap (~50 s, one time only)
+> The Windsurf config lives *outside* the repo, so you must use an
+> **absolute** path. The VS Code config lives *inside* the repo and
+> uses `${workspaceFolder}`, which is why Option 1 needs no editing.
 
-On the first MCP invocation, the launcher:
+---
 
-1. Downloads a standalone `uv` binary (~20 MB) into `.tools/`.
-2. `uv` downloads a portable CPython (~30 MB) into the same folder.
-3. `uv sync` builds a project-local `.venv` from `pyproject.toml`.
-4. Launches the safety proxy → real ConPort server.
+#### Option 3 — Cursor / Claude Desktop / any other MCP client
+
+Point the client at the launcher with an absolute path. The config
+shape is the same as Windsurf (see Option 2) — the exact file
+location varies per product:
+
+- **Cursor:** Settings → MCP → Add new server → Command:
+  `C:\…\conport_launcher.cmd` (or `.sh`).
+- **Claude Desktop:** `%APPDATA%\Claude\claude_desktop_config.json`
+  (Windows) or `~/Library/Application Support/Claude/claude_desktop_config.json`
+  (macOS), same JSON shape as Windsurf.
+
+Restart the client afterwards.
+
+---
+
+#### Option 4 — Manual / headless (for debugging)
+
+You *can* run the launcher directly from a terminal. It speaks the
+MCP protocol over stdio, so you'll see JSON-RPC, not a friendly UI —
+this is only useful to confirm the bootstrap succeeds.
+
+```powershell
+# Windows PowerShell
+.\conport_launcher.cmd
+```
+
+```bash
+# macOS / Linux
+./conport_launcher.sh
+```
+
+Press `Ctrl+C` to stop. To quit cleanly from the JSON-RPC side, send
+`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}` followed
+by EOF.
+
+### 1d. First-run bootstrap (~50 s, one time only)
+
+The **very first** time the launcher runs (via your editor or
+manually), it will:
+
+1. Download a standalone `uv` binary (~20 MB) into `.tools/`.
+2. `uv` downloads a portable CPython interpreter (~30 MB) into the
+   same folder.
+3. `uv sync` builds a project-local `.venv` from `pyproject.toml`
+   and installs `context-portal-mcp` + its dependencies.
+4. Launches the safety proxy, which spawns the real ConPort server.
 
 Every subsequent launch is **< 3 seconds**.
 
-Everything lives **inside the repo folder**. Delete the folder and
-nothing is left on the system.
+Everything lives **inside the repo folder** (`.tools/`, `.venv/`).
+Delete the repo folder and nothing is left on your system.
 
-### 1d. Verify it works
+> If your editor's MCP client times out during the 50 s bootstrap,
+> just retry the same question — the bootstrap continues in the
+> background and the next call will succeed instantly.
+
+### 1e. Verify it works
 
 Ask your AI:
 
-> "What are the tables in the supplier module?"
+> "Using the conport MCP server, what are the tables in the supplier module?"
 
-If it answers with real table names like `t_sup_supplier`,
-`t_sup_internal_team`, `t_sup_naf`, etc. — the pipeline is live.
+If the answer contains real table names like `t_sup_supplier`,
+`t_sup_internal_team`, `t_sup_naf` (rather than plausibly-guessed
+names), the pipeline is live end-to-end.
 
 ---
 
