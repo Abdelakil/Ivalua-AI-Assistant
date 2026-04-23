@@ -87,6 +87,15 @@ if exist "%UV_BIN%" (
 set "UV_CACHE_DIR=%TOOLS%\uv-cache"
 set "UV_PYTHON_INSTALL_DIR=%TOOLS%\python"
 
+REM Enterprise networks with DPI/TLS interception tend to kill long-running
+REM parallel HTTPS transfers ("os error 10054"). Tame uv to survive them:
+REM   - serialize downloads (fewer concurrent connections for firewalls to kill)
+REM   - generous per-request timeout so large wheels (torch 109MB) can finish
+REM   - native Windows TLS plays nicer with corp proxy CAs
+if not defined UV_CONCURRENT_DOWNLOADS set "UV_CONCURRENT_DOWNLOADS=2"
+if not defined UV_HTTP_TIMEOUT          set "UV_HTTP_TIMEOUT=600"
+if not defined UV_NATIVE_TLS            set "UV_NATIVE_TLS=1"
+
 REM ---- Corporate PyPI mirror: if pip has a credentialed index URL but uv
 REM      doesn't, inject pip's credentials into uv's index so sync works
 REM      on locked-down networks (common on enterprise setups).
