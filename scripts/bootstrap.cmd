@@ -23,6 +23,23 @@ pushd "%ROOT%"
 for %%I in ("%CD%") do set "ROOT=%%~fI"
 popd
 
+REM ---- Re-run ourselves with stdout+stderr teed to bootstrap.log, so that if
+REM      the window closes or a tool crashes, the user can still share the log.
+set "BOOTSTRAP_LOG=%ROOT%\bootstrap.log"
+if "%~1"=="--logged" goto :main
+REM cmd /c does the stderr merge (pure text), PowerShell only tees stdout.
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+    "$ErrorActionPreference='Continue';" ^
+    "cmd /c '\"%~f0\" --logged 2>&1' | Tee-Object -FilePath '%BOOTSTRAP_LOG%';" ^
+    "exit $LASTEXITCODE"
+set "RC=%ERRORLEVEL%"
+echo.
+echo [bootstrap] Full log written to: %BOOTSTRAP_LOG%
+echo [bootstrap] Exit code: %RC%
+pause
+exit /b %RC%
+
+:main
 echo [bootstrap] Project root: %ROOT%
 
 set "TOOLS=%ROOT%\.tools"
@@ -54,11 +71,13 @@ if exist "%UV_BIN%" (
         if errorlevel 1 (
             echo [bootstrap] ERROR: failed to download uv and no system uv found.
             echo [bootstrap]        Install uv (https://github.com/astral-sh/uv) or place uv.exe at %UV_BIN%.
+            pause
             exit /b 1
         )
         set "UV_BIN=%TOOLS%\uv.exe"
         if not exist "!UV_BIN!" (
             echo [bootstrap] ERROR: uv.exe not found after extraction.
+            pause
             exit /b 1
         )
     )
@@ -72,6 +91,7 @@ echo [bootstrap] Step 2/3 -- install portable Python + project deps (2-5 min)
 "%UV_BIN%" sync --project "%ROOT%"
 if errorlevel 1 (
     echo [bootstrap] ERROR: uv sync failed.
+    pause
     exit /b 1
 )
 
@@ -79,6 +99,7 @@ echo [bootstrap] Step 3/3 -- smoke-test the ConPort server
 "%UV_BIN%" run --project "%ROOT%" python -c "import importlib; importlib.import_module('context_portal_mcp'); print('[bootstrap]   context_portal_mcp imported OK')"
 if errorlevel 1 (
     echo [bootstrap] ERROR: ConPort server failed to import.
+    pause
     exit /b 1
 )
 
@@ -87,3 +108,4 @@ echo [bootstrap] DONE. Subsequent launches will start in ^< 3 seconds.
 echo [bootstrap] You can now point your editor (Windsurf/VS Code/Cursor) at:
 echo [bootstrap]   %ROOT%\conport_launcher.cmd
 endlocal
+exit /b 0
