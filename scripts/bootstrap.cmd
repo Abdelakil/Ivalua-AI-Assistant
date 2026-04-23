@@ -47,8 +47,8 @@ set "UV_BIN=%TOOLS%\uv.exe"
 
 echo [bootstrap] Step 1/3 -- locate uv
 REM Prefer an existing uv: project-local first, then system-wide on PATH.
-REM Only download as a last resort (useful on locked-down machines where
-REM github.com is blocked but a corporate-provisioned uv is already installed).
+REM Only download as a last resort -- useful on locked-down machines where
+REM github.com is blocked but a corporate-provisioned uv is already installed.
 if exist "%UV_BIN%" (
     echo [bootstrap]   using project-local uv: %UV_BIN%
 ) else (
@@ -70,7 +70,7 @@ if exist "%UV_BIN%" (
             "Remove-Item $zip -Force"
         if errorlevel 1 (
             echo [bootstrap] ERROR: failed to download uv and no system uv found.
-            echo [bootstrap]        Install uv (https://github.com/astral-sh/uv) or place uv.exe at %UV_BIN%.
+            echo [bootstrap]        See https://github.com/astral-sh/uv or place uv.exe at %UV_BIN%
             pause
             exit /b 1
         )
