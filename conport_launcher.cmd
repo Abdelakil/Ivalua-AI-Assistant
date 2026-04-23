@@ -30,26 +30,34 @@ set "TOOLS=%ROOT%\.tools"
 set "UV_BIN=%TOOLS%\uv.exe"
 set "PROXY=%ROOT%\context_portal\scripts\conport_safe_proxy.py"
 
-REM ---- Bootstrap uv on first run ---------------------------------------------
+REM ---- Locate uv: project-local, then system PATH, then download ------------
 if not exist "%UV_BIN%" (
-    1>&2 echo [conport_launcher] First run: downloading portable uv...
-    if not exist "%TOOLS%" mkdir "%TOOLS%"
-    powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-        "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue';" ^
-        "$url = 'https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip';" ^
-        "$zip = Join-Path '%TOOLS%' 'uv.zip';" ^
-        "Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing;" ^
-        "Expand-Archive -Path $zip -DestinationPath '%TOOLS%' -Force;" ^
-        "Remove-Item $zip -Force" 1>&2
-    if errorlevel 1 (
-        1>&2 echo [conport_launcher] ERROR: failed to download uv. Check internet access.
-        exit /b 1
+    for /f "delims=" %%U in ('where uv.exe 2^>nul') do (
+        if not defined UV_SYS set "UV_SYS=%%U"
     )
-    if not exist "%UV_BIN%" (
-        1>&2 echo [conport_launcher] ERROR: uv.exe not found after extraction.
-        exit /b 1
+    if defined UV_SYS (
+        set "UV_BIN=!UV_SYS!"
+        1>&2 echo [conport_launcher] using system uv: !UV_BIN!
+    ) else (
+        1>&2 echo [conport_launcher] First run: downloading portable uv...
+        if not exist "%TOOLS%" mkdir "%TOOLS%"
+        powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+            "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue';" ^
+            "$url = 'https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip';" ^
+            "$zip = Join-Path '%TOOLS%' 'uv.zip';" ^
+            "Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing;" ^
+            "Expand-Archive -Path $zip -DestinationPath '%TOOLS%' -Force;" ^
+            "Remove-Item $zip -Force" 1>&2
+        if errorlevel 1 (
+            1>&2 echo [conport_launcher] ERROR: failed to download uv and no system uv found.
+            exit /b 1
+        )
+        if not exist "%UV_BIN%" (
+            1>&2 echo [conport_launcher] ERROR: uv.exe not found after extraction.
+            exit /b 1
+        )
+        1>&2 echo [conport_launcher] uv ready at %UV_BIN%
     )
-    1>&2 echo [conport_launcher] uv ready at %UV_BIN%
 )
 
 REM Tell the proxy to use our bundled uv instead of system `uvx`

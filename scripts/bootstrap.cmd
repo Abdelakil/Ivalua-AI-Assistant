@@ -28,24 +28,39 @@ echo [bootstrap] Project root: %ROOT%
 set "TOOLS=%ROOT%\.tools"
 set "UV_BIN=%TOOLS%\uv.exe"
 
-echo [bootstrap] Step 1/3 -- install portable uv binary
-if not exist "%UV_BIN%" (
-    if not exist "%TOOLS%" mkdir "%TOOLS%"
-    echo [bootstrap]   downloading uv...
-    powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-        "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue';" ^
-        "$url = 'https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip';" ^
-        "$zip = Join-Path '%TOOLS%' 'uv.zip';" ^
-        "Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing;" ^
-        "Expand-Archive -Path $zip -DestinationPath '%TOOLS%' -Force;" ^
-        "Remove-Item $zip -Force"
-    if errorlevel 1 (
-        echo [bootstrap] ERROR: failed to download uv. Check internet access.
-        exit /b 1
+echo [bootstrap] Step 1/3 -- locate uv
+REM Prefer an existing uv: project-local first, then system-wide on PATH.
+REM Only download as a last resort (useful on locked-down machines where
+REM github.com is blocked but a corporate-provisioned uv is already installed).
+if exist "%UV_BIN%" (
+    echo [bootstrap]   using project-local uv: %UV_BIN%
+) else (
+    for /f "delims=" %%U in ('where uv.exe 2^>nul') do (
+        if not defined UV_SYS set "UV_SYS=%%U"
     )
-    if not exist "%UV_BIN%" (
-        echo [bootstrap] ERROR: uv.exe not found after extraction.
-        exit /b 1
+    if defined UV_SYS (
+        set "UV_BIN=!UV_SYS!"
+        echo [bootstrap]   using system uv: !UV_BIN!
+    ) else (
+        if not exist "%TOOLS%" mkdir "%TOOLS%"
+        echo [bootstrap]   no uv found -- downloading portable copy...
+        powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+            "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue';" ^
+            "$url = 'https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip';" ^
+            "$zip = Join-Path '%TOOLS%' 'uv.zip';" ^
+            "Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing;" ^
+            "Expand-Archive -Path $zip -DestinationPath '%TOOLS%' -Force;" ^
+            "Remove-Item $zip -Force"
+        if errorlevel 1 (
+            echo [bootstrap] ERROR: failed to download uv and no system uv found.
+            echo [bootstrap]        Install uv (https://github.com/astral-sh/uv) or place uv.exe at %UV_BIN%.
+            exit /b 1
+        )
+        set "UV_BIN=%TOOLS%\uv.exe"
+        if not exist "!UV_BIN!" (
+            echo [bootstrap] ERROR: uv.exe not found after extraction.
+            exit /b 1
+        )
     )
 )
 "%UV_BIN%" --version
