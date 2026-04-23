@@ -87,6 +87,27 @@ if exist "%UV_BIN%" (
 set "UV_CACHE_DIR=%TOOLS%\uv-cache"
 set "UV_PYTHON_INSTALL_DIR=%TOOLS%\python"
 
+REM ---- Corporate PyPI mirror: if pip has a credentialed index URL but uv
+REM      doesn't, inject pip's credentials into uv's index so sync works
+REM      on locked-down networks (common on enterprise setups).
+REM      Strategy: keep UV_INDEX_URL host/path, take only user:pass from PIP.
+for /f "usebackq delims=" %%U in (`powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+    "$uv = $env:UV_INDEX_URL; $pip = $env:PIP_INDEX_URL;" ^
+    "if ($pip -and $pip -match '^(https?://)([^@/]+:[^@/]+)@' -and $uv -and $uv -notmatch '@') {" ^
+    "  $creds = $Matches[2]; Write-Output ($uv -replace '^(https?://)', ('${1}' + $creds + '@')) }" ^
+    "elseif ($pip -and $pip -match '@' -and -not $uv) { Write-Output $pip }"`) do (
+    set "UV_INDEX_URL=%%U"
+)
+if defined UV_INDEX_URL (
+    REM Mask credentials before logging to avoid leaking secrets into bootstrap.log
+    for /f "usebackq delims=" %%M in (`powershell -NoProfile -Command ^
+        "$env:UV_INDEX_URL -replace '(https?://)[^@/]+:[^@/]+@','${1}***:***@'"`) do (
+        echo [bootstrap]   PyPI index: %%M
+    )
+) else (
+    echo [bootstrap]   PyPI index: ^<default pypi.org^>
+)
+
 echo [bootstrap] Step 2/3 -- install portable Python + project deps (2-5 min)
 "%UV_BIN%" sync --project "%ROOT%"
 if errorlevel 1 (
