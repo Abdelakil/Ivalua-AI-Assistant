@@ -87,6 +87,15 @@ if exist "%UV_BIN%" (
 set "UV_CACHE_DIR=%TOOLS%\uv-cache"
 set "UV_PYTHON_INSTALL_DIR=%TOOLS%\python"
 
+REM Some corporate Windows setups redirect %TEMP% to C:\Temp which has
+REM restrictive ACLs / AV locks that break uv's PE-trampoline rewrites
+REM ("Failed to update Windows PE resources ... Access denied"). Keep
+REM temp files inside the project folder where the user definitely has
+REM write access.
+set "TEMP=%TOOLS%\temp"
+set "TMP=%TOOLS%\temp"
+if not exist "%TEMP%" mkdir "%TEMP%"
+
 REM Enterprise networks with DPI/TLS interception tend to kill long-running
 REM parallel HTTPS transfers ("os error 10054"). Tame uv to survive them:
 REM   - serialize downloads (fewer concurrent connections for firewalls to kill)
