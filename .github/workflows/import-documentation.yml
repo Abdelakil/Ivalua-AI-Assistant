@@ -1,0 +1,59 @@
+# -----------------------------------------------------------------------------
+# Incremental documentation importer for ConPort.
+#
+# Scans the local Documentation/ folder, extracts text from PDF/DOCX/XLSX/PPTX
+# files, cleans noise, chunks into ~3 KB segments, and inserts (or removes)
+# entries in context_portal/context.db.  A manifest tracks file mtimes so only
+# changed / new / deleted files are re-processed.
+#
+# Trigger: manual dispatch or on push to main that touches the importer script.
+# The DB file (context.db) and manifest are committed back if they changed.
+# -----------------------------------------------------------------------------
+name: Import Documentation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'context_portal/scripts/import_documentation.py'
+      - 'pyproject.toml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+
+      - name: Sync dependencies
+        run: uv sync
+
+      - name: Run incremental importer
+        run: uv run python context_portal/scripts/import_documentation.py
+
+      - name: Check for changes
+        id: changes
+        run: |
+          git add context_portal/context.db
+          git add context_portal/import_data/doc_manifest.json
+          if git diff --staged --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit updated DB + manifest
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore: incremental doc import [skip ci]"
+          git push

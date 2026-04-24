@@ -28,6 +28,8 @@ context_portal/context.db-journal
 # Generated import chunks (rebuilt by CI and by local import)
 context_portal/import_data/*.json
 !context_portal/import_data/.gitkeep
+!context_portal/import_data/doc_manifest.json
+
 
 # Vector index auto-rebuilds from context.db on first semantic search
 context_portal/conport_vector_data/
