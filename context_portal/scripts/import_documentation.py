@@ -94,6 +94,7 @@ MODULE_SLUGS = {
     "Soft Skills": "SOFT_SKILLS",
     "_Orientation in the Platform": "ORIENTATION_IN_THE_PLATFORM",
     "_Refresher Badge (v178-v182)": "REFRESHER_BADGE_V178_V182",
+    "Savings": "SAVINGS"
 }
 
 
