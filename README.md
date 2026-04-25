@@ -2,10 +2,12 @@
 
 Persistent, AI-queryable memory for the complete Ivalua platform:
 **~1,800 database tables** (59 modules, fully indexed with bidirectional
-FK relationships) + **~1,500 documentation files** — all preloaded into
-a single SQLite-backed ConPort MCP server that any AI model
-(Windsurf, Cursor, Claude Desktop, VS Code with MCP) can query without
-reading the source files and without hallucinating table/column names.
+FK relationships) + **documentation** sourced from both the `entries/`
+JSON workflow (small curated docs) and the `Documentation/` folder
+(bulk PDF/DOCX/PPTX import). All data lives in a single SQLite-backed
+ConPort MCP server that any AI model (Windsurf, Cursor, Claude Desktop,
+VS Code with MCP) can query without reading source files and without
+hallucinating table/column names.
 
 **Fully portable.** No Python, no admin rights, no PATH edits, no package
 manager, no hardcoded paths. Clone, configure your editor once, done.
@@ -274,10 +276,16 @@ names), the pipeline is live end-to-end.
 
 ## 2. Keeping your knowledge base up to date
 
-Whenever a colleague adds an `entries/*.json` file and pushes it to
-`main`, the GitHub Action rebuilds `context_portal/context.db` and
-**commits the updated database back to `main` automatically**. To get
-those updates on your machine:
+The knowledge base receives content from **two** sources:
+
+| Source | Workflow | What triggers a DB update |
+|---|---|---|
+| `entries/*.json` | JSON entries (schema / docs / tips) | Push to `main` → CI validates, imports, commits DB |
+| `Documentation/` | Bulk documentation (PDF/DOCX/PPTX/TXT) | Run `import_documentation.py` locally, then commit DB |
+
+### Pull the latest DB
+
+After any push to `main` that changed the database, pull to stay current:
 
 ### 2a. Pull the latest DB
 
@@ -372,6 +380,8 @@ Ivalua-AI-Assistant/
         ├── conport_safe_proxy.py          ← crash-prevention MCP proxy
         ├── import_all_entries.py          ← entries/ → import chunks
         ├── import_to_conport.py           ← chunks → context.db
+        ├── import_documentation.py        ← Documentation/ → incremental import
+        ├── rebuild_embeddings.py          ← manual vector store rebuild
         └── module_toggle.py               ← enable/disable modules at runtime
 ```
 
@@ -381,6 +391,9 @@ Auto-created on first run (never commit these — already in `.gitignore`):
 .tools/    .venv/    context_portal/import_data/*.json
 context_portal/conport_vector_data/    context_portal/logs/
 ```
+
+`context_portal/import_data/doc_manifest.json` is tracked — it stores the
+incremental import state for the `Documentation/` bulk importer.
 
 ---
 
@@ -472,9 +485,45 @@ CI will:
 
 ---
 
-## 5. ConPort key schemes (memorize these — they are your API)
+## 5. Bulk documentation import (the `Documentation/` workflow)
 
-### 5.1 Database schema
+For large documentation sets (PDF/DOCX/PPTX/TXT files), place files in the
+`Documentation/` folder organized by module subdirectories.
+
+### 5.1 Run the incremental importer
+
+```bash
+python context_portal/scripts/import_documentation.py
+```
+
+This script:
+- **Scans** all files in `Documentation/`
+- **Compares mtimes** against `doc_manifest.json` — only processes changed/new/deleted files
+- **Extracts text** (PDF via PyPDF2, DOCX via python-docx, PPTX via python-pptx)
+- **Cleans noise** (copyright lines, page/slide numbers, empty bullets)
+- **Chunks** large documents into ~3 KB segments with 500 char overlap
+- **Inserts** chunks into `context.db` with metadata (noise_ratio, module, topic, file_path)
+- **Rebuilds** module indexes (`DOC_INDEX_*`) automatically
+- **Updates** `doc_manifest.json` with new mtimes and generated chunk keys
+
+### 5.2 Commit and push
+
+```bash
+git add context_portal/context.db context_portal/import_data/doc_manifest.json
+git commit -m "docs: bulk import from Documentation/"
+git push
+```
+
+### 5.3 Adding new files later
+
+Simply drop new files into `Documentation/` and re-run the importer. Only the
+new or modified files are re-processed — the other 1,400+ files are skipped.
+
+---
+
+## 6. ConPort key schemes (memorize these — they are your API)
+
+### 6.1 Database schema
 
 | Purpose                  | Key pattern                     | Example                         |
 |--------------------------|---------------------------------|---------------------------------|
@@ -485,7 +534,7 @@ CI will:
 FK relationships are **bidirectional**: `foreign_keys_out` +
 `foreign_keys_in` per table — no joins, no extra queries.
 
-### 5.2 Documentation
+### 6.2 Documentation
 
 | Purpose                  | Key pattern                       | Example                        |
 |--------------------------|-----------------------------------|--------------------------------|
@@ -493,7 +542,7 @@ FK relationships are **bidirectional**: `foreign_keys_out` +
 | Module → list of docs    | `DOC_INDEX_{MODULE_SLUG}`         | `DOC_INDEX_SUPPLIER_MANAGEMENT` |
 | All-docs overview        | `DOC_INDEX_ALL`                   | —                              |
 
-### 5.3 Tips
+### 6.3 Tips
 
 | Purpose | Key pattern         | Example            |
 |---------|---------------------|--------------------|
@@ -501,7 +550,7 @@ FK relationships are **bidirectional**: `foreign_keys_out` +
 
 ---
 
-## 6. The safety proxy
+## 7. The safety proxy
 
 `context_portal/scripts/conport_safe_proxy.py` is an MCP stdio proxy
 that sits between your editor and the real ConPort server. It:
@@ -514,7 +563,7 @@ It's wired in automatically by the launcher. Nothing to configure.
 
 ---
 
-## 7. Architecture
+## 8. Architecture
 
 ```
  Your editor (VS Code / Windsurf / Cursor / Claude Desktop)
@@ -534,7 +583,7 @@ It's wired in automatically by the launcher. Nothing to configure.
 
 ---
 
-## 8. Local development
+## 9. Local development
 
 ### Rebuild the DB from scratch from entries/
 
@@ -544,6 +593,19 @@ python context_portal/scripts/import_to_conport.py 'schema_chunk_*.json'
 python context_portal/scripts/import_to_conport.py 'doc_chunk_*.json'
 python context_portal/scripts/import_to_conport.py 'tips_chunk_*.json'
 ```
+
+### Rebuild vector embeddings (manual)
+
+If semantic search returns stale results after a bulk import, rebuild all
+embeddings from the current DB rows:
+
+```bash
+python context_portal/scripts/rebuild_embeddings.py
+```
+
+This clears the ChromaDB collection and regenerates vectors for every
+custom_data row. The MCP server also auto-rebuilds on its first semantic
+search after a restart.
 
 ### Reset the auto-downloaded toolchain
 
@@ -561,7 +623,7 @@ Next launch re-downloads and reinstalls everything.
 
 ---
 
-## 9. Troubleshooting
+## 10. Troubleshooting
 
 | Symptom                                                 | Fix                                                           |
 |---------------------------------------------------------|---------------------------------------------------------------|
@@ -572,11 +634,12 @@ Next launch re-downloads and reinstalls everything.
 | `git pull` refuses with conflict on `context.db`        | `git reset --hard origin/main` — you accidentally modified the DB locally. See §2a. |
 | CI fails on validation                                  | Run `python scripts/validate_entries.py` locally — same errors. |
 | Hook not running                                        | Run `python scripts/install_hooks.py` (once per clone).        |
-| Want to force a full re-import                          | GitHub → Actions → **Validate & Import Entries** → Run workflow. |
+| Want to force a full re-import (entries)                | GitHub → Actions → **Validate & Import Entries** → Run workflow. |
+| Want to force a full re-import (documentation)          | GitHub → Actions → **Import Documentation** → Run workflow.      |
 
 ---
 
-## 10. FAQ
+## 11. FAQ
 
 **Does committing `context.db` (~46 MB) bloat the repo?**
 Each CI run adds one binary diff. For a small team this stays under a
@@ -599,6 +662,6 @@ Append it to `VALID_SCHEMA_MODULES` in
 
 ---
 
-## 11. License
+## 12. License
 
 Internal knowledge base. See repository settings for licensing details.

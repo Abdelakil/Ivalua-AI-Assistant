@@ -30,7 +30,7 @@ context_portal/import_data/*.json
 !context_portal/import_data/.gitkeep
 !context_portal/import_data/doc_manifest.json
 
-
+Documentation/
 # Vector index auto-rebuilds from context.db on first semantic search
 context_portal/conport_vector_data/
 

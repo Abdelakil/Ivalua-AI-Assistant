@@ -2,16 +2,19 @@
 
 Scans Documentation/ for text-extractable files, compares against a manifest
 of previously-imported files, and only re-processes new or changed files.
-Removed files are purged from the DB. Module indexes are rebuilt on every run.
+By default removed files are kept in the DB; use --delete-orphans to purge them.
+Module indexes are rebuilt on every run.
 
 Usage:
     python context_portal/scripts/import_documentation.py
+    python context_portal/scripts/import_documentation.py --delete-orphans
 
 Dependencies (from pyproject.toml):
     PyPDF2, python-docx, openpyxl, python-pptx
 """
 from __future__ import annotations
 
+import argparse
 import json
 import re
 import sqlite3
@@ -332,9 +335,18 @@ def rebuild_indexes(conn: sqlite3.Connection, all_items: list[dict]) -> int:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description="Incremental documentation importer")
+    parser.add_argument(
+        "--delete-orphans",
+        action="store_true",
+        help="Delete DB entries for files removed from Documentation/ (default: keep them)",
+    )
+    args = parser.parse_args()
+
     print("Incremental documentation importer")
     print(f"DB: {DB}")
     print(f"Manifest: {MANIFEST_PATH}")
+    print(f"Delete orphans: {args.delete_orphans}")
 
     conn = sqlite3.connect(DB)
     conn.execute("PRAGMA journal_mode=WAL")
@@ -363,16 +375,20 @@ def main() -> int:
     print(f"  Changed/new: {len(to_process)}")
     print(f"  Removed: {len(removed)}")
 
-    # Handle removed files: collect their keys and delete
+    # Handle removed files: keep DB entries unless --delete-orphans is set
     if removed:
-        removed_keys = []
-        for rel in removed:
-            removed_keys.extend(old_files[rel].get("keys", []))
-        if removed_keys:
-            n = delete_doc_keys(conn, removed_keys)
-            print(f"  Deleted {n} rows for {len(removed)} removed files")
-        for rel in removed:
-            del old_files[rel]
+        if args.delete_orphans:
+            removed_keys = []
+            for rel in removed:
+                removed_keys.extend(old_files[rel].get("keys", []))
+            if removed_keys:
+                n = delete_doc_keys(conn, removed_keys)
+                print(f"  Deleted {n} rows for {len(removed)} removed files")
+            for rel in removed:
+                del old_files[rel]
+        else:
+            print(f"  Kept DB entries for {len(removed)} removed files (use --delete-orphans to purge)")
+            # Keep manifest entries so the files are still tracked
 
     # Handle changed/new files
     processed_items = []
