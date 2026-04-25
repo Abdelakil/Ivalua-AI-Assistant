@@ -5,6 +5,7 @@ description = "Ivalua knowledge base on ConPort with crash-prevention proxy"
 requires-python = ">=3.11"
 dependencies = [
     "context-portal-mcp>=0.3.0",
+    "pymupdf>=1.23.0",
     "PyPDF2>=3.0",
     "python-docx>=0.8.11",
     "openpyxl>=3.1.0",

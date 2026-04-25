@@ -10,12 +10,20 @@ Usage:
     python context_portal/scripts/import_documentation.py --delete-orphans
 
 Dependencies (from pyproject.toml):
-    PyPDF2, python-docx, openpyxl, python-pptx
+    pymupdf, PyPDF2, python-docx, openpyxl, python-pptx
+
+Changelog:
+    - Expanded copyright/noise regexes (standalone © lines, Ivalua branding).
+    - PyMuPDF (fitz) used as primary PDF extractor; PyPDF2 is fallback.
+    - Garbled-text detector skips chunks with spaced or concatenated letters;
+      writes garbled_report.json to import_data/ for human review.
+    - Added extraction_method and quality_score fields per chunk.
 """
 from __future__ import annotations
 
 import argparse
 import json
+import logging
 import re
 import sqlite3
 import sys
@@ -36,10 +44,30 @@ CATEGORY = "IVALUA_Documentation"
 SKIP_EXT = {".mp4", ".jpg", ".jpeg", ".png", ".mp3", ".tscproj", ".csv"}
 TEXT_EXT = {".pdf", ".txt", ".docx", ".xlsx", ".pptx"}
 
-COPYRIGHT_RE = re.compile(r"©\s*\d{4}.*Ivalua.*All rights reserved", re.IGNORECASE)
+# --- Noise patterns removed during clean_text() ---
+# Matches standalone copyright lines like "© 2023 Ivalua" or full footer lines
+COPYRIGHT_RE = re.compile(
+    r"(?:"
+    r"©\s*\d{4}[^\n]*?Ivalua"
+    r"|Ivalua[^\n]*?©\s*\d{4}"
+    r"|©\s*\d{4}[^\n]*?All rights reserved"
+    r"|ALL SPEND,\s*ALL SUPPLIERS,\s*NO COMPROMISES"
+    r")",
+    re.IGNORECASE,
+)
 PAGE_NUM_RE = re.compile(r"^\s*(Page\s+\d+\s+of\s+\d+|\d+\s*/\s*\d+|\d+)\s*$")
 SLIDE_NUM_RE = re.compile(r"^\s*Slide\s+\d+\s*$", re.IGNORECASE)
 EMPTY_BULLET_RE = re.compile(r"^\s*[-•·*o]\s*$")
+# Matches lines that are only an Ivalua brand/version watermark
+BRAND_LINE_RE = re.compile(r"^\s*(?:Ivalua\s+\d[\d.]*|www\.ivalua\.com)\s*$", re.IGNORECASE)
+
+# --- Garbled-text detection ---
+# Spaced letters: "C o n t r a c t" → individual chars separated by spaces
+SPACED_LETTERS_RE = re.compile(r"(?:[A-Za-z] ){4,}[A-Za-z]")
+# Concatenated words: runs of >25 lowercase letters with no spaces between words
+CONCAT_WORDS_RE = re.compile(r"[a-z]{25,}")
+
+GARBLED_REPORT_PATH = Path(__file__).resolve().parents[2] / "context_portal" / "import_data" / "garbled_report.json"
 
 
 def now_iso() -> str:
@@ -77,12 +105,41 @@ def clean_text(text: str) -> str:
     lines = text.splitlines()
     cleaned = []
     for line in lines:
-        if COPYRIGHT_RE.search(line) or PAGE_NUM_RE.match(line) or SLIDE_NUM_RE.match(line) or EMPTY_BULLET_RE.match(line):
+        if (
+            COPYRIGHT_RE.search(line)
+            or PAGE_NUM_RE.match(line)
+            or SLIDE_NUM_RE.match(line)
+            or EMPTY_BULLET_RE.match(line)
+            or BRAND_LINE_RE.match(line)
+        ):
             continue
         stripped = line.strip()
         if stripped:
             cleaned.append(stripped)
     return "\n".join(cleaned)
+
+
+def garbled_score(text: str) -> float:
+    """Return a garbled score 0.0-1.0. Higher = more garbled.
+
+    Uses two signals:
+    1. Spaced-letter density: "C o n t r a c t" patterns.
+    2. Concatenated-word density: runs of 25+ lowercase letters.
+    """
+    if not text:
+        return 0.0
+    words = text.split()
+    if len(words) < 10:
+        return 0.0
+    spaced_hits = len(SPACED_LETTERS_RE.findall(text))
+    concat_hits = len(CONCAT_WORDS_RE.findall(text))
+    # Normalise against total word count
+    spaced_score = min(spaced_hits / max(len(words), 1) * 5, 1.0)
+    concat_score = min(concat_hits / max(len(words), 1) * 5, 1.0)
+    return round(max(spaced_score, concat_score), 3)
+
+
+GARBLED_THRESHOLD = 0.35  # chunks above this are skipped
 
 
 def noise_ratio(original: str, cleaned: str) -> float:
@@ -115,7 +172,28 @@ def chunk_text(text: str) -> list[str]:
     return chunks
 
 
-def extract_pdf(fp: Path) -> str:
+def extract_pdf(fp: Path) -> tuple[str, str]:
+    """Return (text, extraction_method). Tries PyMuPDF first, falls back to PyPDF2."""
+    # --- Primary: PyMuPDF (fitz) ---
+    try:
+        import fitz  # pymupdf
+        doc = fitz.open(str(fp))
+        parts = []
+        for page in doc:
+            txt = page.get_text("text")
+            if txt:
+                parts.append(txt)
+        doc.close()
+        result = "\n".join(parts)
+        if result.strip():
+            return result, "pymupdf"
+        # Empty → fall through to PyPDF2
+    except ImportError:
+        pass
+    except Exception as e:
+        logging.getLogger(__name__).debug("PyMuPDF failed for %s: %s", fp.name, e)
+
+    # --- Fallback: PyPDF2 ---
     try:
         import PyPDF2
         reader = PyPDF2.PdfReader(str(fp))
@@ -127,9 +205,9 @@ def extract_pdf(fp: Path) -> str:
                     parts.append(txt)
             except Exception:
                 pass
-        return "\n".join(parts)
+        return "\n".join(parts), "pypdf2"
     except Exception as e:
-        return f"[PDF extraction error: {e}]"
+        return f"[PDF extraction error: {e}]", "error"
 
 
 def extract_docx(fp: Path) -> str:
@@ -168,25 +246,34 @@ def extract_pptx(fp: Path) -> str:
         return f"[PPTX extraction error: {e}]"
 
 
-def extract(fp: Path) -> str | None:
+def extract(fp: Path) -> tuple[str | None, str]:
+    """Return (text, extraction_method)."""
     ext = fp.suffix.lower()
     if ext == ".pdf":
         return extract_pdf(fp)
     elif ext == ".txt":
-        return fp.read_text(encoding="utf-8", errors="replace")
+        return fp.read_text(encoding="utf-8", errors="replace"), "plaintext"
     elif ext == ".docx":
-        return extract_docx(fp)
+        return extract_docx(fp), "python-docx"
     elif ext == ".xlsx":
-        return extract_xlsx(fp)
+        return extract_xlsx(fp), "openpyxl"
     elif ext == ".pptx":
-        return extract_pptx(fp)
-    return None
+        return extract_pptx(fp), "python-pptx"
+    return None, "unsupported"
+
+
+_garbled_log: list[dict] = []  # accumulated across all files in a run
 
 
 def build_conport_items(fp: Path, module_slug: str) -> list[dict]:
+    log = logging.getLogger(__name__)
     ext = fp.suffix.lower()
-    raw = extract(fp)
+    raw, extraction_method = extract(fp)
     if raw is None or not raw.strip():
+        return []
+
+    if extraction_method == "error":
+        log.warning("Extraction error for %s: %s", fp.name, raw)
         return []
 
     raw = re.sub(r"[\ud800-\udfff]", "", raw)
@@ -201,16 +288,35 @@ def build_conport_items(fp: Path, module_slug: str) -> list[dict]:
     total = len(chunks)
 
     items = []
+    skipped_garbled = 0
     for idx, chunk in enumerate(chunks):
+        gs = garbled_score(chunk)
+        if gs >= GARBLED_THRESHOLD:
+            skipped_garbled += 1
+            _garbled_log.append({
+                "file": str(fp.relative_to(WORKSPACE)).replace("\\", "/"),
+                "topic": fp.stem,
+                "chunk_index": idx,
+                "total_chunks": total,
+                "garbled_score": gs,
+                "preview": chunk[:200],
+            })
+            log.debug("Skipping garbled chunk %d/%d in %s (score=%.2f)", idx, total, fp.name, gs)
+            continue
+
         key = f"DOC_{module_slug}_{topic_slug}_C{idx}" if total > 1 else f"DOC_{module_slug}_{topic_slug}"
+        quality_score = round(1.0 - gs, 3)
         value = {
             "module": module_slug,
             "topic": fp.stem,
             "file_path": str(fp.relative_to(WORKSPACE)).replace("\\", "/"),
             "content_type": ext.lstrip(".").upper(),
+            "extraction_method": extraction_method,
             "chunk_index": idx if total > 1 else None,
             "total_chunks": total if total > 1 else None,
             "noise_ratio": nr,
+            "garbled_score": gs,
+            "quality_score": quality_score,
             "original_char_count": original_len,
             "cleaned_char_count": len(cleaned),
             "char_count": len(chunk),
@@ -220,6 +326,10 @@ def build_conport_items(fp: Path, module_slug: str) -> list[dict]:
             "manual_entry": False,
         }
         items.append({"category": CATEGORY, "key": key, "value": value})
+
+    if skipped_garbled:
+        log.warning("Skipped %d/%d garbled chunks in %s", skipped_garbled, total, fp.name)
+
     return items
 
 
@@ -334,6 +444,23 @@ def rebuild_indexes(conn: sqlite3.Connection, all_items: list[dict]) -> int:
     return deleted, imported
 
 
+def save_garbled_report() -> None:
+    """Persist _garbled_log to garbled_report.json for human review."""
+    log = logging.getLogger(__name__)
+    GARBLED_REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    report = {
+        "generated": now_iso(),
+        "total_skipped_chunks": len(_garbled_log),
+        "garbled_threshold": GARBLED_THRESHOLD,
+        "entries": _garbled_log,
+    }
+    tmp = GARBLED_REPORT_PATH.with_suffix(".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(report, f, ensure_ascii=False, indent=2)
+    tmp.replace(GARBLED_REPORT_PATH)
+    log.info("Garbled report: %d skipped chunks → %s", len(_garbled_log), GARBLED_REPORT_PATH)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Incremental documentation importer")
     parser.add_argument(
@@ -341,17 +468,38 @@ def main() -> int:
         action="store_true",
         help="Delete DB entries for files removed from Documentation/ (default: keep them)",
     )
+    parser.add_argument(
+        "--full-rebuild",
+        action="store_true",
+        help="Wipe ALL IVALUA_Documentation entries from DB before re-importing (clean slate).",
+    )
     args = parser.parse_args()
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
 
     print("Incremental documentation importer")
     print(f"DB: {DB}")
     print(f"Manifest: {MANIFEST_PATH}")
     print(f"Delete orphans: {args.delete_orphans}")
+    print(f"Full rebuild: {args.full_rebuild}")
 
     conn = sqlite3.connect(DB)
     conn.execute("PRAGMA journal_mode=WAL")
 
-    manifest = load_manifest()
+    if args.full_rebuild:
+        cur_pre = conn.cursor()
+        cur_pre.execute("DELETE FROM custom_data WHERE category = ?", (CATEGORY,))
+        conn.commit()
+        wiped = cur_pre.rowcount
+        print(f"Full rebuild: wiped {wiped} existing IVALUA_Documentation entries.")
+        # Reset manifest so all files are treated as new
+        manifest = {"version": 1, "files": {}}
+    else:
+        manifest = load_manifest()
+
     current_files = scan_docs()
     old_files = manifest.get("files", {})
 
@@ -440,6 +588,9 @@ def main() -> int:
     manifest["files"] = old_files
     manifest["last_run"] = now_iso()
     save_manifest(manifest)
+
+    # Save garbled report
+    save_garbled_report()
 
     # Verify
     cur.execute("SELECT category, COUNT(*) FROM custom_data GROUP BY category ORDER BY category")

@@ -6,8 +6,12 @@
 # entries in context_portal/context.db.  A manifest tracks file mtimes so only
 # changed / new / deleted files are re-processed.
 #
-# Trigger: manual dispatch or on push to main that touches the importer script.
+# Trigger: manual dispatch, on push to Documentation/, or on push that touches
+# the importer script or pyproject.toml.
 # The DB file (context.db) and manifest are committed back if they changed.
+# NOTE: Semantic embeddings (ChromaDB) are NOT rebuilt here — the MCP server
+# regenerates them on first semantic search after the DB is updated.
+# To force a local rebuild run: uv run python context_portal/scripts/rebuild_embeddings.py
 # -----------------------------------------------------------------------------
 name: Import Documentation
 
@@ -15,6 +19,7 @@ on:
   push:
     branches: [main]
     paths:
+      - 'Documentation/**'
       - 'context_portal/scripts/import_documentation.py'
       - 'pyproject.toml'
   workflow_dispatch:
@@ -37,7 +42,19 @@ jobs:
         run: uv sync
 
       - name: Run incremental importer
-        run: uv run python context_portal/scripts/import_documentation.py
+        run: uv run python context_portal/scripts/import_documentation.py --delete-orphans
+
+      - name: Rebuild FTS index
+        run: uv run python scripts/fix_fts.py
+
+      - name: Upload garbled report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: garbled-report
+          path: context_portal/import_data/garbled_report.json
+          retention-days: 30
+          if-no-files-found: ignore
 
       - name: Check for changes
         id: changes
@@ -50,8 +67,20 @@ jobs:
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Stage garbled report
+        run: git add -f context_portal/import_data/garbled_report.json || true
+
+      - name: Check for changes
+        id: changes2
+        run: |
+          if git diff --staged --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Commit updated DB + manifest
-        if: steps.changes.outputs.changed == 'true'
+        if: steps.changes.outputs.changed == 'true' || steps.changes2.outputs.changed == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"

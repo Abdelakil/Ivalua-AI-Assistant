@@ -355,7 +355,8 @@ Ivalua-AI-Assistant/
 │   ├── settings.json                      ← Python interpreter + formatting
 │   └── extensions.json                    ← recommended extensions
 ├── .github/workflows/
-│   ├── validate-and-import.yml            ← CI: validate → import → commit db
+│   ├── validate-and-import.yml            ← CI: validate entries → import → rebuild FTS → commit db
+│   ├── import-documentation.yml           ← CI: bulk PDF/DOCX import on Documentation/ push
 │   └── sync-custom-instructions.yml       ← weekly upstream strategy sync (PR)
 ├── .githooks/
 │   └── pre-commit                         ← local validation before commit
@@ -363,7 +364,10 @@ Ivalua-AI-Assistant/
 │   ├── bootstrap.sh / .cmd                ← pre-warm toolchain (run once)
 │   ├── validate_entries.py                ← JSON validator (stdlib only)
 │   ├── install_hooks.py                   ← one-shot hook installer
-│   └── sync_custom_instructions.py        ← pull upstream strategies
+│   ├── sync_custom_instructions.py        ← pull upstream strategies
+│   ├── fix_fts.py                         ← rebuild FTS index (also called by CI)
+│   ├── fix_db_anomalies.py                ← one-shot DB cleanup utility
+│   └── db_audit.py                        ← data quality health check
 ├── conport-custom-instructions/           ← paste these into your editor's rules
 │   ├── cascade_conport_strategy.md        ← Windsurf Cascade
 │   ├── generic_conport_strategy.md        ← any MCP-capable LLM
@@ -380,7 +384,7 @@ Ivalua-AI-Assistant/
         ├── conport_safe_proxy.py          ← crash-prevention MCP proxy
         ├── import_all_entries.py          ← entries/ → import chunks
         ├── import_to_conport.py           ← chunks → context.db
-        ├── import_documentation.py        ← Documentation/ → incremental import
+        ├── import_documentation.py        ← Documentation/ → incremental import (PyMuPDF + garbled detector)
         ├── rebuild_embeddings.py          ← manual vector store rebuild
         └── module_toggle.py               ← enable/disable modules at runtime
 ```
@@ -397,133 +401,26 @@ incremental import state for the `Documentation/` bulk importer.
 
 ---
 
-## 4. Contributing content (the `entries/` workflow)
+## 4. Adding content to the knowledge base
 
-All user contributions live under `entries/` as JSON files. **Do not
-edit `context.db` directly** — CI rebuilds it on every push to `main`.
+> **See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full guide.**
 
-### 4.1 Pick the right subfolder
+Quick reference:
 
-| Subfolder       | ConPort category        | Use for                                    |
-|-----------------|-------------------------|--------------------------------------------|
-| `entries/schema/` | `Database_Schema`        | Table definitions, columns, FK relations    |
-| `entries/docs/`   | `IVALUA_Documentation`   | Functional docs, process descriptions       |
-| `entries/tips/`   | `Tips`                   | Gotchas, best practices, verified facts     |
+| I want to add… | Path | Trigger |
+|---|---|---|
+| Curated doc / tip / schema (JSON) | `entries/docs/`, `tips/`, `schema/` | Push → CI auto-imports |
+| PDF / DOCX / PPTX file | `Documentation/<module>/` | Push → CI auto-imports |
+| New module folder for docs | Create folder + register slug in `import_documentation.py` | See §4 of CONTRIBUTING.md |
 
-### 4.2 Copy the template, fill it in
-
-```bash
-cp entries/schema/template.json entries/schema/my_table.json
-# edit my_table.json
-```
-
-**Schema** (`entries/schema/*.json`) — see `entries/schema/example.json`.
-
-| Field                    | Required | Notes                                                    |
-|--------------------------|----------|----------------------------------------------------------|
-| `module`                 | ✅        | One of `bas`, `sup`, `ctr`, `req`, `rsk`, `inv`, `spn`, `ext`, `cat`, `src`, `pur`, `com`, `pay`, `bud`, `ord` |
-| `table_technical_name`   | ✅        | Must match `^t_[a-z0-9_]+$`                              |
-| `table_display_name`     | ➖        | Human-readable label                                     |
-| `columns[]`              | ✅        | Non-empty. Each: `column_name`, `data_type`, optional FK |
-| `relationships`          | ➖        | `foreign_keys_out[]`, `foreign_keys_in[]`                |
-
-**Docs** (`entries/docs/*.json`) — see `entries/docs/example.json`.
-
-| Field             | Required | Notes                                        |
-|-------------------|----------|----------------------------------------------|
-| `module`          | ✅        | Full module name, e.g. "Supplier Management" |
-| `topic`           | ✅        | Non-empty                                    |
-| `content`         | ➖        | Full text                                    |
-| `summary`, `key_concepts`, `sections`, `file_path`, `content_type` | ➖ | optional metadata |
-
-**Tips** (`entries/tips/*.json`) — see `entries/tips/example.json`.
-
-| Field      | Required | Notes                                            |
-|------------|----------|--------------------------------------------------|
-| `tip_id`   | ✅        | `UPPER_SNAKE_CASE`. `TIP_` prefix auto-added    |
-| `topic`    | ✅        | Short title                                     |
-| `summary`  | ✅        | One sentence                                    |
-| `detail`   | ✅        | Full explanation                                |
-| `tags[]`, `related_schema_tables[]`, `related_doc_keys[]`, `source` | ➖ | optional |
-
-### 4.3 Validate locally (optional but recommended)
-
-```bash
-python scripts/validate_entries.py               # all files
-python scripts/validate_entries.py entries/tips/my_tip.json
-```
-
-Exit code is 0 on success, 1 on validation errors, 2 on I/O errors.
-**CI runs the exact same validator.**
-
-### 4.4 Install the pre-commit hook (one-time)
-
-Blocks commits that contain invalid JSON:
-
-```bash
-python scripts/install_hooks.py           # install
-python scripts/install_hooks.py --uninstall
-git commit --no-verify                    # bypass once
-```
-
-### 4.5 Commit & push
-
-```bash
-git add entries/schema/my_table.json
-git commit -m "schema: add t_bas_my_table"
-git push
-```
-
-CI will:
-
-1. **Validate** all entries — fails the run if any are invalid.
-2. **Import** into `context.db` via `import_all_entries.py`
-   → `import_to_conport.py`.
-3. **Commit** the updated `context.db` back to `main` with
-   `[skip ci]` to avoid loops.
-4. **Upload** `context.db` as a workflow artifact (14-day retention).
+Co-pilot hint: use `uv run python scripts/validate_entries.py` locally before
+pushing entries. CI runs the same check.
 
 ---
 
-## 5. Bulk documentation import (the `Documentation/` workflow)
+## 5. ConPort key schemes (memorize these — they are your API)
 
-For large documentation sets (PDF/DOCX/PPTX/TXT files), place files in the
-`Documentation/` folder organized by module subdirectories.
-
-### 5.1 Run the incremental importer
-
-```bash
-python context_portal/scripts/import_documentation.py
-```
-
-This script:
-- **Scans** all files in `Documentation/`
-- **Compares mtimes** against `doc_manifest.json` — only processes changed/new/deleted files
-- **Extracts text** (PDF via PyPDF2, DOCX via python-docx, PPTX via python-pptx)
-- **Cleans noise** (copyright lines, page/slide numbers, empty bullets)
-- **Chunks** large documents into ~3 KB segments with 500 char overlap
-- **Inserts** chunks into `context.db` with metadata (noise_ratio, module, topic, file_path)
-- **Rebuilds** module indexes (`DOC_INDEX_*`) automatically
-- **Updates** `doc_manifest.json` with new mtimes and generated chunk keys
-
-### 5.2 Commit and push
-
-```bash
-git add context_portal/context.db context_portal/import_data/doc_manifest.json
-git commit -m "docs: bulk import from Documentation/"
-git push
-```
-
-### 5.3 Adding new files later
-
-Simply drop new files into `Documentation/` and re-run the importer. Only the
-new or modified files are re-processed — the other 1,400+ files are skipped.
-
----
-
-## 6. ConPort key schemes (memorize these — they are your API)
-
-### 6.1 Database schema
+### 5.1 Database schema
 
 | Purpose                  | Key pattern                     | Example                         |
 |--------------------------|---------------------------------|---------------------------------|
@@ -534,7 +431,7 @@ new or modified files are re-processed — the other 1,400+ files are skipped.
 FK relationships are **bidirectional**: `foreign_keys_out` +
 `foreign_keys_in` per table — no joins, no extra queries.
 
-### 6.2 Documentation
+### 5.2 Documentation
 
 | Purpose                  | Key pattern                       | Example                        |
 |--------------------------|-----------------------------------|--------------------------------|
@@ -542,7 +439,7 @@ FK relationships are **bidirectional**: `foreign_keys_out` +
 | Module → list of docs    | `DOC_INDEX_{MODULE_SLUG}`         | `DOC_INDEX_SUPPLIER_MANAGEMENT` |
 | All-docs overview        | `DOC_INDEX_ALL`                   | —                              |
 
-### 6.3 Tips
+### 5.3 Tips
 
 | Purpose | Key pattern         | Example            |
 |---------|---------------------|--------------------|
@@ -550,7 +447,7 @@ FK relationships are **bidirectional**: `foreign_keys_out` +
 
 ---
 
-## 7. The safety proxy
+## 6. The safety proxy
 
 `context_portal/scripts/conport_safe_proxy.py` is an MCP stdio proxy
 that sits between your editor and the real ConPort server. It:
@@ -563,7 +460,7 @@ It's wired in automatically by the launcher. Nothing to configure.
 
 ---
 
-## 8. Architecture
+## 7. Architecture
 
 ```
  Your editor (VS Code / Windsurf / Cursor / Claude Desktop)
@@ -578,34 +475,44 @@ It's wired in automatically by the launcher. Nothing to configure.
  conport-mcp  (spawned via uv)      ← the real ConPort server
       │
       ▼
- context_portal/context.db          ← 3,400+ row SQLite knowledge base
+ context_portal/context.db          ← 4,000+ row SQLite knowledge base
 ```
 
 ---
 
-## 9. Local development
+## 8. Local development
 
 ### Rebuild the DB from scratch from entries/
 
 ```bash
-python context_portal/scripts/import_all_entries.py
-python context_portal/scripts/import_to_conport.py 'schema_chunk_*.json'
-python context_portal/scripts/import_to_conport.py 'doc_chunk_*.json'
-python context_portal/scripts/import_to_conport.py 'tips_chunk_*.json'
+uv run python context_portal/scripts/import_all_entries.py
+uv run python context_portal/scripts/import_to_conport.py "schema_chunk_*.json"
+uv run python context_portal/scripts/import_to_conport.py "doc_chunk_*.json"
+uv run python context_portal/scripts/import_to_conport.py "tips_chunk_*.json"
+uv run python scripts/fix_fts.py
 ```
 
 ### Rebuild vector embeddings (manual)
 
-If semantic search returns stale results after a bulk import, rebuild all
-embeddings from the current DB rows:
+Semantic embeddings (ChromaDB) are regenerated automatically by the MCP
+server on its first semantic search after a DB update. If you want to force
+a full rebuild immediately:
 
 ```bash
-python context_portal/scripts/rebuild_embeddings.py
+uv run python context_portal/scripts/rebuild_embeddings.py
 ```
 
 This clears the ChromaDB collection and regenerates vectors for every
-custom_data row. The MCP server also auto-rebuilds on its first semantic
-search after a restart.
+`custom_data` row (takes a few minutes for 4,000+ rows).
+
+### Run a data quality audit
+
+```bash
+uv run python scripts/db_audit.py
+```
+
+Reports: category counts, FTS sync status, copyright leakage, garbled
+chunks, extraction methods, and quality score distribution.
 
 ### Reset the auto-downloaded toolchain
 
@@ -623,7 +530,7 @@ Next launch re-downloads and reinstalls everything.
 
 ---
 
-## 10. Troubleshooting
+## 9. Troubleshooting
 
 | Symptom                                                 | Fix                                                           |
 |---------------------------------------------------------|---------------------------------------------------------------|
@@ -632,14 +539,17 @@ Next launch re-downloads and reinstalls everything.
 | "File not found" on the launcher path                   | VS Code: path in `.vscode/mcp.json` is workspace-relative, ensure you opened the repo root. Windsurf: must be absolute. |
 | macOS: "uv can't be opened, developer unverified"       | `xattr -d com.apple.quarantine .tools/uv`                      |
 | `git pull` refuses with conflict on `context.db`        | `git reset --hard origin/main` — you accidentally modified the DB locally. See §2a. |
+| How do I add new docs/schema/tips?                      | See [`CONTRIBUTING.md`](CONTRIBUTING.md). |
 | CI fails on validation                                  | Run `python scripts/validate_entries.py` locally — same errors. |
 | Hook not running                                        | Run `python scripts/install_hooks.py` (once per clone).        |
 | Want to force a full re-import (entries)                | GitHub → Actions → **Validate & Import Entries** → Run workflow. |
-| Want to force a full re-import (documentation)          | GitHub → Actions → **Import Documentation** → Run workflow.      |
+| Want to force a full re-import (documentation)          | GitHub → Actions → **Import Documentation** → Run workflow. Or locally: `uv run python context_portal/scripts/import_documentation.py --full-rebuild` |
+| PDF content looks garbled / spaced letters              | Check `context_portal/import_data/garbled_report.json`. The file needs OCR or a text-format copy — PyMuPDF cannot extract text from scanned-image PDFs. |
+| FTS search returns stale / ghost results                | Run `uv run python scripts/fix_fts.py` to resync the full-text index. |
 
 ---
 
-## 11. FAQ
+## 10. FAQ
 
 **Does committing `context.db` (~46 MB) bloat the repo?**
 Each CI run adds one binary diff. For a small team this stays under a
@@ -647,7 +557,7 @@ few hundred MB for years. If it ever becomes a problem, run
 `git gc --aggressive` or migrate to Git LFS.
 
 **Why not regenerate the DB from scratch on first launch?**
-The current DB contains ~3,400 baseline entries whose JSON source
+The current DB contains ~4,000 baseline entries whose JSON source
 isn't in the repo (they were imported from external data models and
 docs). Committing the DB is the simplest way to keep clones
 plug-and-play while the `entries/` folder handles incremental growth.
@@ -656,12 +566,23 @@ plug-and-play while the `entries/` folder handles incremental growth.
 Yes — set `UV_PYTHON=/path/to/python` before launching. But the
 bundled one is the tested reference; prefer it.
 
+**How do I add new documentation / tips / schema?**
+There are three paths depending on what you are adding:
+
+| What | Where | How |
+|---|---|---|
+| Curated doc entry, tip, or schema table | `entries/docs/`, `entries/tips/`, `entries/schema/` | Copy a template, fill in JSON, push — CI auto-imports |
+| PDF / DOCX / PPTX document | `Documentation/<module-folder>/` | Push the file — `import-documentation.yml` CI triggers automatically |
+| Large batch of PDFs locally | `Documentation/` | `uv run python context_portal/scripts/import_documentation.py`, then push DB |
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for full details.
+
 **How do I add a brand-new module code?**
 Append it to `VALID_SCHEMA_MODULES` in
 `scripts/validate_entries.py`, then push a schema entry with that code.
 
 ---
 
-## 12. License
+## 11. License
 
 Internal knowledge base. See repository settings for licensing details.
